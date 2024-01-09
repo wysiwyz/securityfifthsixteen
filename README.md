@@ -74,3 +74,76 @@ Spring Security Filters 有很多個，以下列出幾個較為重要的過濾�
 - 當user發送多筆請求，Spring Security為什麼都不會跟他要credentials?
   - Storage -> Cookies (this url) -> Name: JSESSIONID。這個JSESSIONID以cookie形式儲存在瀏覽器browser裡面，這個cookie在之後的每個請求，也會被瀏覽器傳送給後端伺服器，
 
+## 02-001 此package的backend REST services
+- 不需要驗證授權的服務
+  - `/contact`: 從『聯絡我們』頁面接收資料，存進DB
+  - `/notices`：從資料庫傳送公告通知到『公吿消息』頁面
+- 有security需求服務
+  - `/myAccount`：將登入user的『帳戶明細』從DB傳至UI
+  - `/myBalance`：將登入user的『餘額與交易明細』從DB傳至UI
+  - `/myLoans`：將登入user的『貸款明細』從DB傳至UI
+  - `/myCards`：將登入user的『信用卡明細』從DB傳至UI
+
+- By default, Spring Security framework will try to secure all the services that you have inside our web application.
+
+## 02-005 
+- Spring Security預設會讓專案內所有路徑都受到保護 (需要credentials)，原因是出自於`SpringBootWebSecurityConfiguration`類別中的
+`defaultSecurityFilterChain(HttpSecurity http)`方法
+- 如果user指定他們自定義的SecurityFilterChain bean，這個類別就會完全停用
+```java
+static class SpringBootWebSecurityConfiguration {
+    // ...
+    @Bean
+    @Order(SecurityProperties.BASIC_AUTH_ORDER)
+    SecurityFilterChain defaultSecurityFilterChain(HttpSecurity http) throws Exception {
+        //any request that is coming towards my app has to be authenticated⬇️
+        http.authorizeHttpRequests((requests) -> requests.anyRequest().authenticated());
+        //the request can come through a html form or from rest-api application or postman application
+        http.formLogin(withDefaults());
+        http.httpBasic(withDefaults());
+        return http.build(); 
+    }
+    // ...
+}
+```
+
+## 02-008
+有時候客戶端會提一些奇怪需求，例如拒絕所有發送到app的api請求，使用SpringSecurity框架達成的話，如下程式
+即便user輸入了帳號密碼，仍然只會收到 403 錯誤（通過驗證了，但並未授權）
+even though your authentication is successful, but authorization is still denied. 
+
+```java
+@Configuration
+public class ProjectSecurityConfig {
+    /**
+     * Configuration to deny all the requests
+     */
+    @Bean
+    SecurityFilterChain defaultSecurityFilterChain(HttpSecurity http) throws Exception {
+        http.authorizeHttpRequests()
+                .anyRequest().denyAll()
+                .and().formLogin()
+                .and().httpBasic();
+        return http.build();
+    }
+}
+```
+
+## 02-009
+相對於上個情境，也會有允許所有請求的狀況（常見）
+```java
+@Configuration
+public class ProjectSecurityConfig {
+    /**
+     * Configuration to permit all the requests
+     */
+    @Bean
+    SecurityFilterChain defaultSecurityFilterChain(HttpSecurity http) throws Exception {
+        http.authorizeHttpRequests()
+                .anyRequest().permitAll()
+                .and().formLogin()
+                .and().httpBasic();
+        return http.build();
+    }
+}
+```

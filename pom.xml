@@ -9,9 +9,9 @@
 		<relativePath/> <!-- lookup parent from repository -->
 	</parent>
 	<groupId>com.februus</groupId>
-	<artifactId>securityfifthsixteen</artifactId>
+	<artifactId>newIbankBackend</artifactId>
 	<version>0.0.1-SNAPSHOT</version>
-	<name>securityfifthsixteen</name>
+	<name>newIbankBackend</name>
 	<description>Demo project for Spring Boot and Spring Security</description>
 	<properties>
 		<java.version>17</java.version>
