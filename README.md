@@ -1,5 +1,5 @@
 # Spring Security 6 從略懂至很熟
-註：本練習專案是跟著 Spring Security 6 Zero to Master along with JWT, OAUTH2 課程實作
+註：本練習專案是跟著 Spring Security 6, 0 to Master along with JWT, OAUTH2 課程實作
 
 1. 為何要用Spring Security
    - 困境：Application security is not fun and challenging to implement with our custom code/framework.
@@ -147,3 +147,143 @@ public class ProjectSecurityConfig {
     }
 }
 ```
+
+## 03-001
+只有一個 user 哪夠？
+如何將user credentials存進資料庫，再用db驗證
+
+## 03-002
+建立多個users---Approach 1
+- 使用 InMemoryUserDetailsManager
+- 不適合用於生產/正式環境
+- 使用 `withDefaultPasswordEncoder()`(deprecated)
+- 方法標註`@Bean`表示此方法回傳的物件會被轉換成一個bean
+```java
+@Configuration
+public class ProjectSecurityConfig {
+    // ...
+    @Bean
+    public InMemoryUserDetailsManager userDetailsService() {
+        UserDetails admin = User.withDefaultPasswordEncoder()
+                .username("admin")
+                .password("99999")
+                .authorities("admin")
+                .build();
+        UserDetails user = User.withDefaultPasswordEncoder()
+                .username("user")
+                .password("88888")
+                .authorities("read")
+                .build();
+        return new InMemoryUserDetailsManager(admin, user);
+    }
+}
+```
+
+## 03-003
+建立多個users---Approach 2
+- 分別建立PasswordEncoder的bean
+- 使用NoOpPasswordEncoder的實例
+- 密碼未加密，也不適合production環境
+```java
+@Configuration
+public class ProjectSecurityConfig {
+    // ...
+    /**
+     * Approach 2: where we use NoOpPasswordEncoder Bean while creating user details
+     * @return InMemoryUserDetailsManager
+     */
+     @Bean
+     public InMemoryUserDetailsManager userDetailsService() {
+         UserDetails admin = User.withUsername("admin")
+                 .password("99999")
+                 .authorities("admin")
+                 .build();
+         UserDetails user = User.withUsername("user")
+                 .password("88888")
+                 .authorities("read")
+                 .build();
+         return new InMemoryUserDetailsManager(admin, user);
+     }
+
+     /**
+      * Approach 2 is only for non-prod, as it treats password as plain text.
+      * @return PasswordEncoder
+      */
+     @Bean
+     public PasswordEncoder passwordEncoder() {
+         return NoOpPasswordEncoder.getInstance();
+     }
+}
+``` 
+## 03-004
+用戶管理相關的類別與介面
+- `UserDetailsService` \[介面] 核心介面，加載user特定的資料
+  - `loadUserByUsername(String username)`
+- `UserDetailsManager` \[介面] 繼承UserDetailsService，提供建立新users並更新既有users的功能
+  - `createUser(UserDetails user)`
+  - `updateUser(UserDetails user)`
+  - `deleteUser(String username)`
+  - `changePassword(String oldPwd, String newPwd)`
+  - `userExists(String username)`
+- Spring Security提供的實作類別
+  - `InMemoryUserDetailsManager`
+  - `JdbcUserDetailsManager`
+  - `LdapUserDetailsManager`
+上述這些介面與類別都使用了`UserDetails`介面，提供基本user資料
+  - `User`實作了`UserDetails`
+
+## 03-005
+- 保障安全性的設計模式：User或UserDetails都沒有欄位的setter，即建構子注入欄位值之後就不可覆寫或更改
+- Authentication與UserDetails之間的關聯
+  - UserDetails介面與實作的User類別
+    - 是當你要從儲存系統加載用戶資料時，會回傳的類型
+    - 例：UserDetailsService與UserDetailsManager裡面的方法
+    - 常用方法
+      - getPassword()
+      - getUsername()
+      - getAuthorities()
+      - isAccountNonExpired()
+      - isAccountNonLocked()
+      - isEnable()
+      - isCredentialsNonExpired()
+      - eraseCredential()
+  - `Principal`介面、`Authentication`介面與`UsernamePasswordAuthenticationToken`類別
+    - 是當你要決定驗證結果成功與否的情境中，會回傳的類型
+    - 例：AuthenticationProvider與AuthenticationManager裡面的方法
+    - 常用方法
+      - getName()
+      - getPrincial()
+      - getAuthorities()
+      - getCredentials()
+      - getDetails()
+      - isAuthenticated()
+      - setAuthenticated()
+      - eraseCredentials()
+  
+## 03-006
+- `UserDetailsService`介面
+  - 適用於加載特定用戶資料的情境
+  - 方法 `loadUserByUsername(String username)`
+- `UserDetailsManager`，繼承`UserDetailsService`的介面
+  - 可以新增user或更新/刪除既有user
+  - 方法 
+    - `changePassword(String, String)`
+    - `createUser(UserDetails)`
+    - `deleteUser(String)`
+    - `loadUserByUserNamd(String)`
+    - `updateUser(UserDetails)`
+    - `userExists(String)` 
+
+## 03-007
+Spring Security提供的三個實作類別
+1. InMemoryUserDetailsManager
+   - 當建構了這一個物件，傳入的UserDetails(1~多筆)會被for-loop，每筆丟進`createUser(User)`方法
+   - `createUser(UserDetails)`如果不是既有存在的username，則會將這筆userDetail存進map(k:username小寫, v:MutableUser物件)
+2. JdbcUserDetailsManager
+   - Q: 資料表結構為何？欄位名稱為何？要把userDetails存在哪？A: Spring Security有預設一個DB結構、table結構、欄位名稱
+   - `JdbcDaoImpl` - select username, password, enabled from users where username = ?
+     - 資料表名稱預設為users，相關資料在 users.ddl 裡面
+     - 除了users對應authorities，也可以使用`GroupManager`建立群組，並將user分配進所屬群組
+3. LdapUserDetailsManager
+   - 要先加入兩個依賴 `spring-security-ldap` & `spring-ldap-core`
+   - 不是很常用，除非專案有用到Ldap儲存用戶訊息
