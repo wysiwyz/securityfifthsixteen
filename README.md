@@ -287,3 +287,48 @@ Spring Security提供的三個實作類別
 3. LdapUserDetailsManager
    - 要先加入兩個依賴 `spring-security-ldap` & `spring-ldap-core`
    - 不是很常用，除非專案有用到Ldap儲存用戶訊息
+
+## 03-008
+MySQL cloud server
+- 可以用 AWS amazon free tier 建立
+  - RDS如果stop temporarily要一週後才能重啟（希望沒有聽錯）
+  - 趕快做完實作，趕緊刪庫，以免扣錢
+- 使用連結 [Free MySQL Hosting](https://www.freemysqlhosting.net/)
+  - 不會跟你要信用卡號碼
+  - 但每週都會寄信確認你還有沒有在使用
+  - 不確定何時會中止免費服務
+
+## 03-009
+[SQL Ectron](https://sqlectron.github.io/)
+- 輸入先前在AWS建立資料庫的User帳號名稱 `admin` 與密碼
+- Database type選這專案要使用的MySQL
+- Server Address Host貼上AWS>RDS>springsecurity>Connectivity & security>Endpoint & port的Endpoint
+- 建立資料庫 newIBank
+- 執行Security JAR檔案的 users.ddl➡️fail
+- 使用Security官方文檔案的 [JDBC_users schema](https://docs.spring.io/spring-security/reference/servlet/authentication/passwords/jdbc.html) ➡️fail
+- 加入一筆用戶happy
+- 相關ddl放在 resources/sql 路徑之下
+
+## 03-010
+- 因為要實作JdbcUserDetailsManager，故須增加三個dependencies
+  - spring boot starter jdbc 資料庫連線
+  - my sql connector-j 要連接的資料庫
+    - scope 設定 runtime
+  - spring boot starter data jpa 執行資料庫相關交易
+- load maven changes (Intellij mac 快捷鍵：`shift⇧` + `command⌘` + `I`)
+- 在application.properties設定檔案加入配置
+- ProjectSecurityConfig中，與InMemoryUserDetailsManager相關的方法，註解之
+- ProjectSecurityConfig 加入以下方法
+  ```java
+  public class ProjectSecurityConfig {
+      //...
+      @Bean
+      public UserDetailsService userDetailsService(DataSource dataSource) {
+          return new JdbcUserDetailsManager(dataSource);
+      }
+  }
+  ```
+  - 為何回傳物件可以這樣寫？因為JdbcUserDetailsManager實作了UserDetailsManager介面，而此介面繼承了UserDetailsService介面
+- 上一個approach其中一個方法建立的PasswordEncoder仍要保留，為何？
+  - You should always communicate to spring security how our passwords are stored. Whether they are stored in plain text password or hashing/encryption.
+- 後續會示範如何store password in encrypted format
