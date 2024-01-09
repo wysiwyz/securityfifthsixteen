@@ -44,4 +44,33 @@
    - `SecurityContext`: 一旦請求被驗證了，Authentication物件會被存放在執行緒區域(thread-local)的SecurityContext，
       這個物件由SecurityContextHolder管理，有助於驗證這個user之後發送的請求
 
+### Ready to go through the filters? Go!
+Spring Security Filters 有很多個，以下列出幾個較為重要的過濾器：
+(Roles: helps to perform authentication, authorization, displaying the login page, storing the authentication details, etc.)
+1. `AuthorizationFilter.java` 確認該url是否為公開或需要驗證授權的連結
+2. `DefaultLoginPageGeneratingFilter.java` 如果user試圖存取securedURL，就會進入此過濾器，顯示給user看的預設登入頁
+3. `UsernamePasswordAuthenticationFilter.java` 在user輸入帳密等credential後，會進入此過濾器
+   - `attemptAuthention()`方法會建立Authentication物件
+   - `UsernamePasswordAuthenticationToken.java` 為什麼要建立此？它實作了Authentication介面
+   - 再藉由`ProviderManager`物件使上述的AuthenticationToken生效，這個ProviderManager實作了AuthenticationManager介面
+   - 這個Manager裡的authenticate()方法會遍歷所有authenticationProviders，如果同時有兩個有效providers，其中一個先驗證成功，
+     就不會執行第二個驗證，如果第一個驗證失敗了，就會繼續試第二個驗證
+
+> pending question: 那要如何規範哪些頁面需要login，哪些不用？
+
+### Sequence Flow - Spring Security預設行為
+![Sequential_Flow](src/main/resources/static/images/spring_security_sequential_flow.png)
+1. User trying to access a secure page for the first time.
+2. Behind the scenes few filters like `AuthorizationFilter`, `DefaultLoginPageGeneratingFilter` identify that the user is not logged in & redirect the user to login page.
+3. User entered his credentials and the request is intercepted by filters.
+4. Filters like `UsernamePasswordAuthenticationFilter`, extracts the username, password from the request and form an object of `UsernamePasswordAuthenticationToken` which is an implementation of Authentication interface. With the object created it invokes `authenticate()` method of `ProviderManager`.
+5. `ProviderManager` which is an implementataion of `AuthenticationManager` identify the list of Authentication providers available that are supporting given authentication object style. In the default behavior, `authenticate()` method of `DaoAuthenticationProvider` will be invoked by `ProviderManager`.
+6. `DaoAuthenticationProvider` invokes the method `loadUserByUsername()` of `InMemoryUserDetailsManager` to load the user details from memory. Once the user details loaded, it takes help from the default password encoder implementation to compare the password and validate if the user is authenticated or not.
+7. At last it returns the `Authentication` object with the details of authentication success or not to `ProviderManager`.
+8. ProviderManager checks if authentication is successful or not. If not, it will try with other available AuthenticationProviders. Otherwise, it simply returns the authentication details to the filters.
+9. The Authentication object is stored in the SecurityContext object by the filter for future use and the response will be returned to the end user.
+![Simplified_sequential_flow](src/main/resources/static/images/spring_security_sequential_flow_simplified.png)
+
+- 當user發送多筆請求，Spring Security為什麼都不會跟他要credentials?
+  - Storage -> Cookies (this url) -> Name: JSESSIONID。這個JSESSIONID以cookie形式儲存在瀏覽器browser裡面，這個cookie在之後的每個請求，也會被瀏覽器傳送給後端伺服器，
 
