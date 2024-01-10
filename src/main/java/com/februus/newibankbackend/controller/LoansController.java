@@ -1,13 +1,12 @@
-package com.februus.newIbankBackend.controller;
-
+package com.februus.newibankbackend.controller;
 
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 @RestController
-public class ContactController {
-    @GetMapping("/contact")
+public class LoansController {
+    @GetMapping("/myLoans")
     public String getLoanDetails() {
-        return "Inquiry details saved to the DB";
+        return "Here are the loan details from the DB";
     }
 }

@@ -307,7 +307,7 @@ MySQL cloud server
 - 執行Security JAR檔案的 users.ddl➡️fail
 - 使用Security官方文檔案的 [JDBC_users schema](https://docs.spring.io/spring-security/reference/servlet/authentication/passwords/jdbc.html) ➡️fail
 - 加入一筆用戶happy
-- 相關ddl放在 resources/sql 路徑之下
+- 相關ddl放在 resources/sql 路徑之下 (scripts.sql)
 
 ## 03-010
 - 因為要實作JdbcUserDetailsManager，故須增加三個dependencies
@@ -332,3 +332,84 @@ MySQL cloud server
 - 上一個approach其中一個方法建立的PasswordEncoder仍要保留，為何？
   - You should always communicate to spring security how our passwords are stored. Whether they are stored in plain text password or hashing/encryption.
 - 後續會示範如何store password in encrypted format
+
+## 03-011
+建立自定義的 users table (客戶說：我想透過email驗證,要增加email欄位, 我想要用更符合我司習慣的欄位命名)
+- 這樣的情況就不能用JdbcUserDetailsManager了，要自己實作`UserDetailsService`以及`UserDetailsManager`
+- 首先建立一個 customer 資料表 (參考本專案 scripts.sql)，其它下回分曉
+
+## 03-012
+- 建立package`model`，裡面新建class`Customer`，類別加上標註`@Entity`
+  - `@Entity`:
+    - 是 spring data jpa 框架的標註型別
+      - 指的是要被建立的該類別，即代表database其中一張資料表
+  - `@Id`: act as a primary key
+  - `@GeneratedValue(strategy=GenerationType.AUTO)`
+    - no need to provide manually, instead, the framework will work with the database server 
+      and automatically generate the next id value that is available inside the database
+- 建立package`repository`，裡面新建class`CustomerRepository`
+  - 繼承自 JpaRepository<T, type of the field per T that is annotated with @Id> 
+  - 此介面以`@Repository`標註
+- 如果這兩個 java class 是建立在 main package (newibankbackend) 以外的地方，要在程式入口點main()所在的類別加上兩個標註：
+  - `@EntityScan("com.march.nibbackend.model")`
+  - `@EnableJpaRepositories("com.march.nibbackend.repository")`
+  - 用以要求Spring去掃描這些類別並建立beans，供後續商業邏輯使用
+- 另外在主程式類別上面掛標註`@EnableWebSecurity`
+  - 如果你建立的SpringSecurity的專案，就不必掛這個annotation
+  - 適用在專案沒有spring-security dependency的情況
+
+## 03-013
+接下來要用自定義的table建立對應的UserDetailsManager
+- 要實作 UserDetailsService 介面，覆寫`loadUserByUsername()`方法，回傳UserDetails
+- 在config package底下，新建類別`NewIBankUserDetails`，實作 UserDetailsService 介面
+  - GrantedAuthority: interface from java library
+  - SimpleGrantedAuthority: class from spring security
+  - 這類別要加上`@Service`標註，才能creating this class as a bean
+  - 目前產生兩個實作UserDetailsService的bean，會使DaoAuthenticationProvider混淆
+    - `No AuthenticationProvider found for ...UsernamePasswordAuthenticationToken`
+    - 解：先註解 ProjectSecurityConfig 產生 UserDetailsService bean 的方法
+    - 這樣就能順利使用 customer 表裡面的 user 登入了
+    ```java
+    @Service
+    public class NewIBankUserDetails implements UserDetailsService {
+
+      @Autowired
+      CustomerRepository customerRepository;
+
+      @Override
+      public UserDetails loadUserByUsername(String username) throws UsernameNotFoundException {
+        String userName = null;
+        String password = null;
+        List<GrantedAuthority> authorities =  new ArrayList<>();
+        List<Customer> customer = customerRepository.findByEmail(username);
+        if (customer.isEmpty()) {
+            throw new UsernameNotFoundException("User details not found for the user: " + username);
+        } else {
+            userName = customer.get(0).getEmail();
+            password = customer.get(0).getPwd();
+            authorities.add(new SimpleGrantedAuthority(customer.get(0).getRole()));
+        }
+        return new User(username, password, authorities);
+      }
+    }
+    ```
+    
+## 03-014
+註冊新用戶---新增一支REST API
+- 有兩種方式達成 (1) 實作UserDetailsManager; (2) 修改loadUserByUsername方法
+- 建立一個`LoginController`，registerUser方法
+- 先取消csrf，在ProjectSecurityConfig修改方法defaultSecurityFilterChain
+- 修改 customer model 的 id欄位標註
+  ```java
+  @Entity
+  public class Customer { 
+      @Id
+      @GeneratedValue(strategy = GenerationType.AUTO, generator = "native")
+      @GenericGenerator(name="native", strategy="native")
+      private Long id;
+      //other fields
+  }
+  ```
+- 再用postman測試註冊，註冊成功後就可以在UI登入
+![postman](src/main/resources/static/images/register_postman.png)
+

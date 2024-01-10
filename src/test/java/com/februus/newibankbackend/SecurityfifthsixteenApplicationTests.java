@@ -1,4 +1,4 @@
-package com.februus.newIbankBackend;
+package com.februus.newibankbackend;
 
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.context.SpringBootTest;
