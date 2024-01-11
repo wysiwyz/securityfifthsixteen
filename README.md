@@ -515,5 +515,91 @@ Demo: BCryptPasswordEncoder, user login
   2. It's going to check the hash value is the same for the two hash strings. 
 - 如果使用了先前 NoOpPasswordEncoder 存進 table 的 user 資料登入，會`log.warn("Encoded password does not look like BCrypt");`
 
-> pending question: 那AESxRSA的PasswordEncoder是怎麼實作的？
+> pending question: 那`AESxRSA` + BCryptPasswordEncoder是怎麼實作的？
 
+## 05-001
+如何自定義 AuthenticationProvider
+- 當前是使用 DaoAuthenticationProvider，SpringSecurity提供的，可滿足大部分的情境locked、account expired、credential expired
+- 但客戶可能會要求只有特定國家，或者年紀超過18才能進入系統，這樣就需要自定義AuthenticationProvider
+- `AuthenticationProvider`預設實作的責任就是將 “從系統中找到該筆user" 的工作分配給 
+  “UserDetailsService的實作類、以及執行密碼驗證的PasswordEncoder”
+- 而 "`ProviderManager` (AuthenticationManager的實作）" 負責與所有`AuthenticationProviders`的實作確認並驗證user
+- 如果有三種不同情境 (帳密驗證、OAUTH2驗證、OTP驗證)，就可以寫三種 `AuthenticationProviders`，
+  再由 `ProviderManager` 調用對應的 `AuthenticationProvider`
+
+## 05-002
+暸解AuthenticationProvider的方法
+```java
+import org.apache.tomcat.util.net.openssl.ciphers.Authentication;
+import javax.naming.AuthenticationException;
+
+public interface AuthenticationProvider {
+    Authentication authenticate(Authentication authentication) throws AuthenticationException;
+    boolean supports(Class<?> authentication);
+}
+```
+- `authenticate(Authentication)`: 接收並回傳Authentication物件，可以將自定義的驗證邏輯寫在此方法中
+- `supports(Class<?> authentication`: 如果當前的AuthenticationProvider支援此類型的Authentication物件，就回傳true
+  - TestingAuthenticationProvider 的supports方法
+    ```java
+    public class TestingAuthenticationProvider implements AuthenticationProvider {
+        //...
+        @Override
+        public boolean supports(Class<?> authentication) {
+            return TestingAuthenticationToken.class.isAssignableFrom(authentication);
+        }
+    }
+    ```
+  - DaoAuthenticationProvider 繼承 AbstractUserDetailsAuthenticationProvider 的supports方法
+    ```java
+    public abstract class AbstractUserDetailsAuthenticationProvider {
+        // ...
+    	@Override
+		public boolean supports(Class<?> authentication) {
+			return (UsernamePasswordAuthenticationToken.class.isAssignableFrom(authentication));
+		}
+    }
+    ```
+
+## 05-003
+實作自定義的AuthenticationProvider
+1. config package 增加 xxxxxAuthenticationProvider，實作介面AuthenticationProvider
+2. `supports(Class<?>)` 這裏使用UsernamePasswordAuthenticationToken
+3. `authenticate(Authentication)` 寫自己的驗證邏輯
+   1. 從DB資料表撈取UserDetails
+   2. 驗證密碼、如果吻合就更新authoritiesDetails
+   3. 其他像是國籍或年齡的驗證，會寫在這個方法
+   ```java
+   @Component
+   public class NewIBankUsernamePwdAuthenticationProvider implements AuthenticationProvider {
+       // ...
+       @Override
+       public Authentication authenticate(Authentication authentication) throws AuthenticationException {
+           String username = authentication.getName();
+           String pwd = authentication.getCredentials().toString();
+           List<Customer> customer = customerRepository.findByEmail(username);
+           if (customer.isEmpty()) {
+               if (passwordEncoder.matches(pwd, customer.get(0).getPwd())) {
+                   List<GrantedAuthority> authorities = new ArrayList<>();
+                   authorities.add(new SimpleGrantedAuthority(customer.get(0).getRole()));
+                   return new UsernamePasswordAuthenticationToken(username, pwd, authorities);
+               } else {
+                   throw new BadCredentialsException("Invalid password");
+               }
+           } else {
+               throw new BadCredentialsException("No user registered with this details");
+           }
+       }
+   }
+   ```
+4. 最後要讓Spring Security能偵測到這個類別的Bean，需要在類別加上`@Component`標註
+
+## 05-004
+- 因為已經建立自定義的AuthenticationProvider，就不用再借助UserDetailsService，故刪除NewIBankUserDetails
+  - 原因：不會再用到DaoAuthenticationProvider
+
+## 05-005
+- 回顧先前的Sequence Flow，使用自定義的AuthenticationProvider會在步驟六負責從table加載資料
+- 不會再用到UserDetailsService、UserDetailsManager的實作類別JdbcUserDetailsManager，或者客製的實作類別
+- 簡易版Sequence Flow如下
+  ![Custom_AuthProvider_Sequence_Flow](src/main/resources/static/images/spring_security_sequence_flow_simplified_custom_AuthPrivider.png)
