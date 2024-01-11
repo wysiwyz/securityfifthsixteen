@@ -413,3 +413,107 @@ MySQL cloud server
 - 再用postman測試註冊，註冊成功後就可以在UI登入
 ![postman](src/main/resources/static/images/register_postman.png)
 
+## 04-001
+- 預設的PasswordEncoder是如何驗證密碼的？
+  - 純文字比對密碼會有機密問題，不適合正式環境
+  - 實際可查看`DaoAuthenticationProvider`類別中的`additionalAuthenticationChecks`方法
+  - `this.passwordEnoder`當前使用的是NoOpPasswordEncoder，`matches(CharSequence, String)`不夠secure
+
+## 04-002
+密碼管理的不同方式：比較Encoding, Encryption以及Hashing
+- Encoding 編碼
+  - 將資料從一種格式轉換(convert)為另一格式的程序，與加密學無關
+  - 沒有秘密，完全可逆的
+  - 編碼不能用來保障資料安全，不適用於密碼管理
+  - 編碼常用演算法：ASCII, BASE64, UNICODE
+- Encryption 加密
+  - 改變(transform)資料內容的程序，可以保證機密性
+  - 為了達成機密係，加密必須有一把鑰匙(key)
+  - 可以用key逆向得到原本文的內容，只要key保有機密性，加密就能保障安全
+- Hashing 哈希/雜湊演算法
+  - 使用hashing函式將資料轉換為hash value
+  - hashed資料不可逆，無法用產生的hash value推回原文
+  - 如果給定一些原始資料與哈希後的對照組，就能驗證雜湊後的值是否與原始值匹配
+
+
+## 04-004
+- Bcrypt是雜湊演算法其中一種
+- Rounds of hash預設是12
+- 如果原始文本相同，hash rounds不變，每一次的bcrypt-hash encrypt結果還是會不同
+- 登入時：Hash to check 就會是存在DB的文本，比對 String to check against 用戶輸入的密碼
+[Bcrypt-online generator](https://bcrypt-generator.com/)
+- Given some arbitrary data along with the output of a hashing algorithm, one can verify whether this data matches the original input data without needing to see the original data.
+
+## 04-005
+PasswordEncoder interface
+- PasswordEncoder介面有三個方法
+  ```java
+  public interface PasswordEncoder {
+    String encode(CharSequence rawPassword);
+    boolean matches(CharSequence rawPassword, String encodedPassword);
+    // 密碼是否要再加密一次
+    default boolean upgradeEncoding(String encodedPassword) {
+      return false;
+    }
+  }
+  ```
+- PasswordEncoder介面的不同實作類別
+  - `NoOpPasswordEncoder` (not for prod)
+  - `StandardPasswordEncoder` (not for prod)
+  - `Pbkdf2PasswordEncoder`
+  - `BCryptPasswordEncoder`
+  - `SCryptPasswordEncoder`
+  - `Argon2PasswordEncoder`
+
+## 04-006
+PasswordEncoder 的實作類別
+- `NoOpPasswordEncoder` (not for prod)
+  - 純文字比對，存進資料表之前不加密
+- `StandardPasswordEncoder` (not for prod)
+  - Deprecated class
+  - 只用來支援舊系統(for legacy purpose)
+- `Pbkdf2PasswordEncoder`
+  - 一樣不建議用於正式環境
+  - 5~6年前還算secured，但現在GPU brute force attack緣故，變成中等強度了
+
+#### Brute force attack是什麼
+假設一個駭客取得了驗證用的資料表，有其中一兩個user使用了弱強度的密碼，
+他就能很快猜出對應的原始文本。可能會寫一個程式，會一直傳進最常用的密碼，
+以及最常用的字典詞彙，不對就繼續餵常用密碼，會需要很多processing與memory性能，
+開發人員有兩種方法可以 delay hacking logic:
+(1) 教育end user不要使用簡單的密碼，在輸入欄位驗證大小寫/符號/英數字
+(3) 使用比較強的hashing algorithm，例如BCrypt或SCrypt
+
+## 04-007
+PasswordEncoder 的實作類別
+- `BCryptPasswordEncoder`
+  - B-crypt hashing algorithm, invented in 1999
+  - demand computations power(GPU/CPU) from hacker mission
+  - the most common application
+- `SCryptPasswordEncoder`
+  - C-crypt is advanced version of B-crypt password encoder
+  - demand two parameters: computation power, memory allocation(RAM)
+- `Argon2PasswordEncoder`
+  - Even more latest algo
+  - three dimension parameters: computation power, memory, multiple threads
+  - but it also takes longer time for your web app to hash during login time
+
+## 04-008
+Demo: BCryptPasswordEncoder, new user registration
+- 首先在 ProjectSecurityConfig 建立 PasswordEncoder 的地方，改為回傳 `new BcryptPasswordEncoder()`
+- 接著，LoginController 的`registerUser()`方法中加入 `passwordEncoder.encode(String)`，存進Customer物件再存入table
+
+## 04-009
+Demo: BCryptPasswordEncoder, user login
+- Pattern: 首字母 $2a或$2y或$2b(三種version)
+- BCryptPasswordEncoder建構子：可以設定 version, secureRandom(salt加鹽), strength(log rounds雜湊幾次), 或者都用預設的
+  - version: $2a或$2y或$2b，預設為$2a
+  - strength (workload factor/log rounds): 最低4次，最高31次，預設為10次
+  - secure random value: 隨機產生的數值，用來讓hacker mission更加崎嶇
+- `BCrypt.checkpw(rawPwd, encodedPwd)`方法:
+  1. The rawPwd will be hashed in the same strength, same version
+  2. It's going to check the hash value is the same for the two hash strings. 
+- 如果使用了先前 NoOpPasswordEncoder 存進 table 的 user 資料登入，會`log.warn("Encoded password does not look like BCrypt");`
+
+> pending question: 那AESxRSA的PasswordEncoder是怎麼實作的？
+
