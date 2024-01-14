@@ -603,3 +603,136 @@ public interface AuthenticationProvider {
 - 不會再用到UserDetailsService、UserDetailsManager的實作類別JdbcUserDetailsManager，或者客製的實作類別
 - 簡易版Sequence Flow如下
   ![Custom_AuthProvider_Sequence_Flow](src/main/resources/static/images/spring_security_sequence_flow_simplified_custom_AuthPrivider.png)
+
+
+## 06-001
+CORS and CSRF
+- Cross-origin resource sharing 以及 Cross-site request forgery
+- 如何使用Spring Security處理上述兩個問題
+- 只用Postman應該無法實現這兩個議題，所以要用angular client呈現
+
+## 06-002
+- 請參考 [security516frontend](https://github.com/wysiwyz/security516frontend)
+
+## 06-003
+- 建立七張對應的tables，參考本專案scripts.sql檔
+  - `customer` 客戶信息
+  - `accounts` 客戶的帳戶資料，包含FK:customer_id
+  - `account_transactions` 用戶的帳戶交易紀錄
+  - `loans` 客戶的貸款資料，包含FK:customer_id
+  - `cards` 客戶的信用卡資料，包含FK:customer_id
+  - `notice_details` 公告消息
+  - `contact_messages` 與我們聯絡 ✰
+
+## 06-004
+- 建立對應的repositories以及controllers
+- 基於單一職責原則，也自行建立了對應的services，這樣controller method較乾淨
+
+## 06-005
+- 驗證 register api 是否運作正常
+
+## 06-006
+CORs error
+- 驗證 get notices api 在 postman 正常運行
+- 但是在UI DevTool console卻會拋出錯誤：
+  ```
+  Access to XMLHttpRequest at 'http://localhost:8080/notices' from origin 'http://localhost:4200' has been blocked by CORS policy: 
+  Response to preflight request doesn't pass access control check: 
+  No 'Access-Control-Allow-Origin' header is present on the requested resource.
+  ```
+
+## 06-007
+簡介CORS (Cross-origin resource sharing)
+- CORS is a protocol that enables scripts running on a browser client to interact with resources from a different origin. 
+- For example, if a UI app wishes to make an API call running on a different domain, it would be blocked from doing so by default due to CORS.
+- It's a specification from W3C implemented by most browsers.
+- 因此，CORS並不是什麼資安議題，而是瀏覽器提供的預設保護，以阻止不同來源之間的資料流溝通
+- `other origins`的定義：要被存取的URL位址與JavaSript正在運行的URL位址不同，哪裡不同？
+  - 不同 scheme (HTTP or HTTPs)
+  - 不同域名 domain
+  - 不同埠號 port
+
+## 06-008
+要如何排除 CORS issue？有兩個方法
+- 當一個Web app UI部署在一個server，要跟部署在另外一個server的REST service溝通時，可以透過`@CrossOrigin`標註達成
+- `@CrossOrigin`允許任何domain的client side消費REST Service的API
+- 這個標註列在類別上，有兩種寫法
+  1. `@CrossOrigin(origins="localhost:4200")`- 指定特定域 \[嚴格]
+  2. `@CrossOrigin(origins="*")` - 允許任何domain
+- 但是如果有很多個Controllers，未來要修改origins裡面的參數會很麻煩
+- 所以Spring Security提供了security filter chain其中一個bean的創建，如下範例：
+  ```java
+  public class ProjectSecurityConfig {
+      @Bean
+      SecurityFilterChain defaultSecurityFilterChain(HttpSecurity http) throws Exception {
+          http.cors().configurationSource(new CorsConfigurationSource() {
+              @Override
+              public CorsConfigurationSource getCorsConfiguration(HttpServletRequest request) {
+                  CorsConfiguration config = new CorsConfiguration();
+                  config.setAllowedOrigins(Collections.singletonList("http://localhost:4200"));
+                  config.setAllowedMethods(Collections.singletonList("*"));
+                  config.setAllowedCredentials(true);
+                  config.setAllowedHeaders(Collections.singletonList("*"));
+                  config.setMaxAge(3600L); // 瀏覽器要記住這些配置,為期至多一小時
+                  return config;
+              }
+          }).and().authorizeHttpRequests()
+                  .requestMatchers("/myAccount", "/myBalance", "/myLoans").authenticated()
+                  .requestMatchers("/notices", "/contact", "/register").permitAll()
+              .and().formLogin() 
+              .and().httpBasic();
+          return http.build();
+      }
+  }
+  ```
+
+## 06-009
+- defaultSecurityFilterChain 方法修改完畢後，在UI測試點`notices`導覽按鈕，可以看到Network -> type: preflight
+- 另外 ResponseEntity 可以設定`cacheControl()`，規定幾秒鐘內重發送的請求，不用再重送api，適用於不常變化的資料源
+
+## 06-010
+CSRF - security vulnerability
+- 為避免CSRF，Spring Security 預設不允許任何create或update的操作，因此Post或Put的請求都會收到 HttpStatus.403_FORBIDDEN
+
+## 06-011
+CSRF (Cross-Site Request)
+- A typical cross-site request forgery (CSRF or XSRF) attack aims to perform an operation in a web application on behalf of a user without their explicit consecnt.
+- In general, it doesn't directly steal the user's identity, but it exploits the user to carry out an action without their will.
+- 想像你在使用`netflix.com`網站與攻擊者的網站`evil.com`
+  1. 網飛用戶登入網站，網飛後端伺服器會提供一個針對 domain name=`netflix.com`的cookie存在瀏覽器
+  2. 該名用戶在幾十分鐘後，在此瀏覽器另開一個分頁打開了`evil.com`
+     - `evil.com`回傳一個網頁，其中包含嵌入式惡意連結，會變更網飛帳號的電子信箱，但這惡意連結標題意圖讓你上鉤 (例：手機全館1折)
+  3. 當此用戶天真的點了這個惡意連結，這連結會自動向網飛發出變更電子郵件的請求
+     - 由於瀏覽器已經存了cookie，網飛無法辨別請求是從實際用戶或惡意網站發送，這裡的`evil.com`就偽造了一個像是從網飛UI頁面發送的請求
+       ```html
+       <form action="https://netflix.com/changeEmail" method="POST" id="form">
+           <input type="hidden" name="email" value="user@evil.com">
+       </form>
+       
+       <script>
+           document.getElementById('form').submit();
+       </script>
+       ```
+       
+## 06-012
+CSRF的解決方案
+- To defeat a CSRF attack, application need a way to determine if the HTTp request is legitimately generated via the app's user interface.
+- The best way to achieve this is through a **CSRF token** --- a secure random token that is used to prevent CSRF attack.
+- The token needs to be unique per user session, and should be of **large random value** to make it difficult to guess.
+- 複現之前的情境：
+  1. user登入網飛網頁，網飛後台會提供一個針對網飛domain的cookie存在瀏覽器，
+      同時也對這一個特定user session給予一個隨機產生的CSRF token，
+      (CSRF token is inserted within hidden parameters of HTML forms to avoid exposure to session cookies)
+  2. user開啟了`evil.com`又不小心點了釣魚惡意連結，惡意連結發送了變更請求
+  3. 網飛預期這個請求會提供cookie以及CSRF token，而且這個CSRF token必須與登入操作產生的token醫治
+      如果 CSRF token 與登入取得的 CSRF token 不一致，就會回傳 HttpStatus.403
+- If there's not CSRF solution implemented inside a webapp, 
+    Spring Security by default blocks all HTTP POST/PUT/DELETE/PATCH operations with 403 error.
+- `http.csrf().disable()` NOT for production environment
+
+## 06-013
+Ignore CSRF protection for public apis
+- `.and().csrf().ignoringRequestMatchers("/contact", "/register")`
+- 由於`notice`是get方法，就不用特別加上去
+- 下一節要講 (比較重要的) protected apis
+

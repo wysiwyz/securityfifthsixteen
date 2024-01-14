@@ -1,5 +1,6 @@
 package com.februus.newibankbackend.config;
 
+import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
@@ -9,8 +10,11 @@ import org.springframework.security.crypto.password.NoOpPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.provisioning.JdbcUserDetailsManager;
 import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.web.cors.CorsConfiguration;
+import org.springframework.web.cors.CorsConfigurationSource;
 
 import javax.sql.DataSource;
+import java.util.Collections;
 
 @Configuration
 public class ProjectSecurityConfig {
@@ -22,19 +26,30 @@ public class ProjectSecurityConfig {
      */
     @Bean
     SecurityFilterChain defaultSecurityFilterChain(HttpSecurity http) throws Exception {
-        http.csrf().disable()
-                .authorizeHttpRequests()
-                .requestMatchers("/myAccount","/myBalance","/myLoans","myCards").authenticated() //to protect these api paths
-                .requestMatchers("/notices","/contact","/register").permitAll() //everyone can access these api paths
+
+        // new CorsConfigurationSource
+        http.cors().configurationSource(request -> {
+                    CorsConfiguration config = new CorsConfiguration();
+                    config.setAllowedOrigins(Collections.singletonList("http://localhost:4200"));
+                    config.setAllowedMethods(Collections.singletonList("*"));
+                    config.setAllowCredentials(true);
+                    config.setAllowedHeaders(Collections.singletonList("*"));
+                    config.setMaxAge(3600L);
+                    return config;
+                })
+                .and().csrf().ignoringRequestMatchers("/contact", "/register")
+                .and().authorizeHttpRequests()
+                .requestMatchers("/myAccount", "/myBalance", "/myLoans", "/myCards", "/user").authenticated() //to protect these api paths
+                .requestMatchers("/notices", "/contact", "/register").permitAll() //everyone can access these api paths
                 .and().formLogin()
                 .and().httpBasic();
-
         return http.build();
     }
 
     /**
      * B-Crypt hashing algorithm
-     * @return
+     *
+     * @return PasswordEncoder
      */
     @Bean
     public PasswordEncoder passwordEncoder() {
