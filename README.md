@@ -736,3 +736,25 @@ Ignore CSRF protection for public apis
 - 由於`notice`是get方法，就不用特別加上去
 - 下一節要講 (比較重要的) protected apis
 
+## 06-014
+1. ProjectSecurityConfig 的 defaultSecurity方法中新增一個 `CsrfTokenReuqestAttributeHandler`並定義attribute name
+2. 在 chain_method 裡面
+   ```
+   .csrf((csrf) -> csrf.csrfTokenRequestHandler(requestHandler))
+
+   ```
+3. `CookieCsrfTokenRepository.withHttpOnlyFalse()`:
+   告訴SpringFramework要『建立一個csrf cookie，配置為httpOnlyFalse，這樣部署在angular的JavaScript就可以讀取cookie
+4. 建立 filter 套件，裡面新增`CsrfCookieFilter.java`類，並繼承`OncePerRequestFilter`
+5. 在配置csrf之後加入`addFilterAfter(new CsrfCookieFilter(), BasicAuthenticationFilter.class)`
+   參數#1傳入自定義的filter，參數#2則是使用 httpBasicAuthentication 時候會用到的Spring framework filter
+6. 最後，在cors配置之前加入以下程式碼
+   - tell spring security framework: please create the JSESSIONID by following these session management created here
+   - please always create the JSESSION id after the initial login has completed
+   ```
+   http.securityContext().requireExplicitSave(false)
+       .and().sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.ALWAYS))
+       .cors()...
+   ```
+7. 修改前端登入程式碼，使它能讀取cookie並存進session storage
+
