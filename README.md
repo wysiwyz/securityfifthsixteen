@@ -853,3 +853,52 @@ Spring Security如何存Authorities?
       .requestMatchers("/notices", "/contact", "/register").permitAll();
     ```
   
+## 07-007
+Authority與Role之間的差異
+- Authority
+  - `Authority` is like an individual privilege or an action
+  - Restricting access in a fine-grained manner 存取權區分較精細 (rest-api action level)
+  - 例如：檢視帳號、檢視信用卡(VIEWACCOUNT, VIEWCARDS)
+- Role
+  - `Role` is a group of privilege/action
+  - Restricting acces in a coarse-grained manner 
+  - 例如：管理員角色、用戶角色 (ROLE_ADMIN, ROLE_USER)
+> 1. The names of the authorities/roles are arbitrary in nature and these names can be customized as per the business requirement.
+> 2. Roles are also represented using the same contract `GrantedAuthority` in Spring Security.
+> 3. When defining a role, its name should start with the `ROLE_` prefix. This prefix specifies the difference between a role and an authority.
+
+- Authority跟Role是SpringSecurity給的術語，其它框架可能稱為privilege, actions
+- 在authorities資料表建立 role 資料，參考 `scripts.sql`
+
+## 07-008
+在Spring Security配置Roles一樣也是有三種方式
+1. `hasRole()`
+   - It accepts a single role name for which the endpoint will be configured and user will be validated against the single role mentioned.
+   - Only users having the same role configured can invoke the endpoint.
+2. `hasAnyRole()`
+   - It accepts multiple roles for which the endpoint will be configured and user will be validated against the roles mentioned.
+   - Only users having any of the role configured can call the endpoint.
+3. `access()`
+   - Using Spring Expression Language (SpEL), it provides you unlimited chances for configuring roles which are not possible with the above methods.
+   - We can use operators like `OR`, `AND` inside access() method.
+
+> Note:
+> - `ROLE_prefix` only to be used while configuring the role in DB, but when we configure the roles, we do it only by its name. 
+>   - 也就是說 hasRole()或 hasAnyRole()括號裡面帶的參數不用加上前綴
+> - `access()` method can be used not only for configuring authorization based on authority or role but also with any special requirements that we have. For example, we can configure access based on the country of the user or current time/date.
+
+- 配置roles定義的位置如下
+  - 跟Authorities差不多，一樣也是放在`.requestMatchers(someURL)`後面
+    ```java
+    http.authorizeHttpRequests()
+      .requestMatchers("/myAccount").hasRole("USER")
+      .requestMatchers("/myBalance").hasAnyRole("USER", "ADMIN")
+      .requestMatchers("/myLoans").hasRole("USER")
+      .requestMatchers("/myCards").hasRole("USER")
+      .requestMatchers("/user").authenticated()
+      .requestMatchers("/notices", "/contact", "/register").permitAll();
+    ```
+    
+## 07-009 實作roles
+- 如果DB table_authorities對應的此user沒有ROLE_MANAGER的權限，就會得到 403 response error
+  - `.requestMatchers("/myCards").hasRole("MANAGER")`
