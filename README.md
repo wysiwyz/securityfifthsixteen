@@ -758,3 +758,98 @@ Ignore CSRF protection for public apis
    ```
 7. 修改前端登入程式碼，使它能讀取cookie並存進session storage
 
+---
+
+## 07-001
+比較 Authentication & Authorization
+#### Authentication
+- 『驗證』確認用戶的身份，以提供系統的存取權
+- 『驗證(AuthN)』永遠在授權之前進行
+- 需要用戶的登入資料
+- 若驗證失敗，通常會拿到401 error response
+- 例如：銀行客戶或銀行在使用app行為時，需要先提供身份
+
+#### Authorization
+- 『授權』確認人員/用戶的authorities，以提供資源的存取權
+- 『授權(AuthZ)』永遠在驗證之後進行
+- 需要用戶的 privilege or roles
+- 若授權失敗，會得到 401 error response
+- 一旦登入app，用戶的 roles 與 authorities 會決定用戶能做哪些行動
+
+## 07-002
+Spring Security如何存Authorities?
+- Spring Security把Authorities/Roles相關資訊存在`GrantedAuthority`物件裡，其當中只有一個方法，回傳authority/role的名稱
+  ```java
+  public interface GrantedAuthority {
+      String getAuthority();
+  }
+  ```
+- `SimpleGrantedAuthority`是Spring Security中，`GrantedAuthority`介面預設的實作類別
+  ```java
+  import org.springframework.security.core.GrantedAuthority;  
+   
+  public final class SimpleGrantedAuthority implements GrantedAuthority {
+      private final String role
+      public SimpleGrantedAuthority(String role) {
+          this.role=role;
+      }
+      @Override
+      public String getAuthority() {
+          return this.role;
+      }
+  }
+  ```
+  
+- How is Authorities info stored inside the objects of UserDetails and Authentication interfaces with plays a vital role during authentication?
+  - `User` (實作UserDetails介面) 類別的`getAuthorities()`方法
+  - `UsernamePasswordAuthenticationToken` (實作Authentication介面) 類別的`getAuthorities()`方法
+
+## 07-003
+目前資料表customer的欄位`role`只能放單一一種角色，所以要建立新表以定義任意數量的roles與authorities，相關ddl放在`scripts.sql`檔案裡
+
+## 07-004 
+使用新資料表讀取authorities：相關JPA程式異動
+- 建立新資料表 `Authority`
+  - field Customer customer
+    - `@ManyToOne`: to establish this link between Customer and Authority, meaning many number of authorities can be mapped to a single customer
+    - `@JoinColumn(name="customer_id")`: to convey to spring data JPA that this Authority has link to parent table `customer`
+    - 補充：`@ManyToMany` --- a singular authorities can be assigned to many customers.
+- 調整原本的 `Customer` entity
+  - `@OneToMany(mappedBy = "customer")`: to convey to Spring data JPA that a single record of `Customer` can be mapped to many records inside of `Authorties` table
+    - 注意 mappedBy 放的參數要與 Authorities 中對應的欄位一致
+  - `FetchType.EAGER`: 當Spring data JPA要加載customer資料時，也要勤勞地加載該筆authorities資料
+  - `@JsonIgnore`: 當你在類別中任一field加上此標註，表示它不會被轉進Json response送給UI前端application
+    - 另一欄位`pwd`不加此標註的原因：
+      - 前端需要傳pwd進backend，所以要改用`@JsonProperty(access=JsonProperty.Access.WRITE_ONLY)`
+      - 這樣UI就能傳pwd進Backend，但Database的 hashed pwd就不會被傳回UI application
+- 接著修改AuthenticationProvider
+  - 加入helperMethod，把Set of Authority entity轉成List of GrantedAuthority
+
+## 07-005
+在Spring Security配置Authorities有三種方式
+1. `hasAuthority()`
+   - It accepts a single authority for which the endpoint will be configured and user will be validated against the single authority mentioned.
+   - Only users having the same authority configured can invoke the endpoint.
+   - 針對端點配置單一一個權限
+2. `hasAnyAuthority()`
+   - It accepts multiple authorities for which the endpoint will be configured and user will be validated against the authorities mentioned.
+   - Only users having any of the authorities configured can invoke the endpoint.
+   - 給特定的rest api service 或 api path 配置**多個權限**，只要user擁有任何一個權限就能存取
+3. `access()`
+   - Using Spring Expression Language (SpEL), it provides you unlimited chances for configuring authorities which are not possible with the above methods.
+   - We can use operators like `OR`, `AND` inside access() method.
+   - 適用於較為複雜（可能用到邏輯運算子）的權限定義
+
+- 在哪裡配置Authorities定義？
+  - 通常加在 `.requestMatcher(...)`的後面
+  - 如果是`.requestMatcher(somePath).authenticated()`，則表示任何以登入的用戶都能存取訪問web-app，不需要授權
+    ```java
+    http.authorizeHttpRequests()
+      .requestMatchers("/myAccount").hasAuthority("VIEWACCOUNT")
+      .requestMatchers("/myBalance").hasAnyAuthority("VIEWACCOUNT", "VIEWBALANCE")
+      .requestMatchers("/myLoans").hasAuthority("VIEWLOANS")
+      .requestMatchers("/myCards").hasAuthority("VIEWCARDS")
+      .requestMatchers("/user").authenticated()
+      .requestMatchers("/notices", "/contact", "/register").permitAll();
+    ```
+  

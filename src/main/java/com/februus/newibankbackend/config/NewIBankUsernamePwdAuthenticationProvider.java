@@ -1,5 +1,6 @@
 package com.februus.newibankbackend.config;
 
+import com.februus.newibankbackend.model.Authority;
 import com.februus.newibankbackend.model.Customer;
 import com.februus.newibankbackend.repository.CustomerRepository;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -15,6 +16,7 @@ import org.springframework.stereotype.Component;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Set;
 
 @Component
 public class NewIBankUsernamePwdAuthenticationProvider implements AuthenticationProvider {
@@ -30,9 +32,7 @@ public class NewIBankUsernamePwdAuthenticationProvider implements Authentication
         List<Customer> customer = customerRepository.findByEmail(username);
         if (!customer.isEmpty()) {
             if (passwordEncoder.matches(pwd, customer.get(0).getPwd())) {
-                List<GrantedAuthority> authorities = new ArrayList<>();
-                authorities.add(new SimpleGrantedAuthority(customer.get(0).getRole()));
-                return new UsernamePasswordAuthenticationToken(username, pwd, authorities);
+                return new UsernamePasswordAuthenticationToken(username, pwd, getGrantedAuthorities(customer.get(0).getAuthorities()));
             } else {
                 throw new BadCredentialsException("Invalid password");
             }
@@ -44,5 +44,17 @@ public class NewIBankUsernamePwdAuthenticationProvider implements Authentication
     @Override
     public boolean supports(Class<?> authentication) {
         return (UsernamePasswordAuthenticationToken.class.isAssignableFrom(authentication));
+    }
+
+    /**
+     * to parse this set of Authorities into list of GrantedAuthority
+     * @return grantedAuthority
+     */
+    private List<GrantedAuthority> getGrantedAuthorities(Set<Authority> authorities) {
+        List<GrantedAuthority> grantedAuthorities = new ArrayList<>();
+        for (Authority authority : authorities) {
+            grantedAuthorities.add(new SimpleGrantedAuthority(authority.getName()));
+        }
+        return grantedAuthorities;
     }
 }
