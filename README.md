@@ -901,4 +901,142 @@ Authority與Role之間的差異
     
 ## 07-009 實作roles
 - 如果DB table_authorities對應的此user沒有ROLE_MANAGER的權限，就會得到 403 response error
-  - `.requestMatchers("/myCards").hasRole("MANAGER")`
+    - `.requestMatchers("/myCards").hasRole("MANAGER")`
+- 補充：直接call api
+    - `http://localhost:8080/myAccount?id=1`
+  - `http://localhost:8080/myCards?id=1`
+
+## 08-001
+Filters in Spring Security
+- 很多時候我們會遇上驗證授權後，需要執行houskeeping的情境，例如說：
+  - 輸入驗證 input validation
+  - 追蹤、審計、回報 tracing, auditing, reporting
+  - 日誌 logging of input like IP address, etc.
+  - 多重身份驗證 multifactor authentication using OTP
+- 上述這些需求都可以透過 Spring Security 的 HTTP Filters 達成，在pring SSecurity中，也使用以Servlet為概念的過濾器Filter
+  Filters are servlet concepts which are leveraged in Spring Security as well.
+
+- Spring Security框架有一些內建的過濾器，像是UsernamePasswordAuthenticationFilter, BasicAuthenticationFilter, DefaultLoginPageGeneratingFilter等等
+- 過濾器是一個元件，它接收請求、處理邏輯並轉交給過濾鏈中的下一個filter
+- Spring Security是基於一些servlet filters所組成的一串連鎖鏈，每個過濾器有特定的職責，並且根據配置檔做增加或刪減，也可以根據需求自行加入客製化的過濾器。
+
+## 08-002
+- 可以透過以下兩項配置查看Spring Security中，已註冊的過濾器
+  1. `@EnableWebSecurity(debug=true)`
+      - 用來啟用security details的除錯
+  2. `logging.level.org.springframework.security.web.FilterChainProxy=DEBUG`
+      - 在application.properties檔案中增加這項配置，以啟用logging of the details日誌紀錄
+- 注意，以上兩點不能在production環境中設定，因為這樣也會把使用者機敏資料打印出來(例如sessionId)
+- Spring Security的驗證流程中，會執行的過濾器
+  ```
+  Security filter chain: [
+    DisableEncodeUrlFilter
+    WebAsyncManagerIntegrationFilter
+    SecurityContextHolderFilter
+    HeaderWriterFilter
+    CorsFilter
+    CsrfFilter
+    LogoutFilter
+    UsernamePasswordAuthenticationFilter
+    DefaultLoginPageGeneratingFilter
+    DefaultLogoutPageGeneratingFilter
+    BasicAuthenticationFilter
+    RequestCacheAwareFilter
+    SecurityContextHolderAwareRequestFilter
+    AnonymousAuthenticationFilter
+    SessionManagementFilter
+    ExceptionTranslationFilter
+    FilterSecurityInterceptor
+  ]
+  ```
+- FilterChainProxy 這類別有一個內部類別 VirtualFilterChain，其中的 doFilter會遍歷所有filterChain
+  > 2023/1/17 紀錄🥴:</br>
+  > 這裏遇到一個加上debug=true就無法啟動SpringBoot的bug，看起來是因為SpringBoot版本太新</br>
+  > 參考資料：</br>
+  > [SpringBoot 3.2.1 Error Creating Bean 'springSecurityFilterChain'](https://stackoverflow.com/questions/77715151/spring-boot3-2-1-spring-security-config6-2-1-upgrade-issue-error-creating-b)
+- 專案啟動成功就可以在console看到以下訊息
+  ![EnableWebSecurity](src/main/resources/static/images/enablewebsecurity_debug_true.png)
+  
+## 08-003
+在Spring Security實作自定義filters
+- 可以透過實作`jakarta.servlet`套件裡面的Filter介面達成，之後要覆寫`doFilter()`方法，加入自訂例邏輯，這方法接收三個參數
+  - `ServletRequest`: 代表 HTTP request，使用 ServletRequest 取得 client 傳來的請求
+  - `ServletResponse`：代表 HTTP response，在轉發回 client 或繼續向下一個 filter chain 之前，使用 ServletResponse 調整回傳值
+  - `FilterChain`：代表一個有定義順序之過濾器組合的 collection，會使用此物件轉發請求至 chain 裡面的下一個 filter
+- 可以在一個已知的過濾器之前、之後、或者該過濾器位置上加入新的filter，而每個filter的位置是一個索引(an index/a number)，也稱為順序(the order)
+  - 以下是在spring security flow中，可以用來配置客製化過濾器的方法
+    - `addFilterBefore(filter, class)`: 將filter加進特定filter類別所在位置之前
+    - `addFilterAfter(filter, class)`: 將filter加進特定filter類別所在位置之後
+    - `addFilter(filter, class)`: 將filter加進特定filter類別所在的位置
+       > filter: the object of your filter class </br>
+         class: Spring Security in-built filter name   
+- `Filter` interface
+  - Oracle把JavaEE交給了開源社群，所以package `javax.*`都成了`jakarta.x`
+  - `init()`, `destroy()` 這兩個default方法可以覆寫，也可以維持不做事
+  - `doFilter()` 就是需要寫入主要自訂邏輯的地方
+
+## 08-004
+addFilterBefore()
+
+示例：要在基本驗證之前，先確認user輸入的email不包含`test`
+```
+   ---(request)->     📁    --->     📁     --->      🍀    ---> 📁 BasicAuthen-
+👩🏻‍💼                CorsFilter     CsrfFilter       RVFilter         ticationFilter
+   <-(response)--  order#1  <---  order#2  <---   order#3  <---    order#4
+```
+1. 在filter套件建立類別`RequestValidationBeforeFilter`，實作`Filter`介面的`doFilter()`方法
+2. 從servletRequest取得header名字為`Authorization`的header字串
+   - 這是由Angular專案中的`app.request.interceptor.ts`存入
+   - {Basic}{ }{將`email:password`轉成Base64的值}
+     ```JavaScript
+     if(this.user && this.user.password && this.user.email){
+         httpHeaders = httpHeaders.append('Authorization', 'Basic ' + window.btoa(this.user.email + ':' + this.user.password));
+     }
+     ```
+3. 接著就在ProjectSecurityConfig修改`defaultSecurityFilterChain()`方法，
+   ```java
+   //...通常在cors跟csrf的設定後面
+   .addFilterBefore(new RequestValidationBeforeFilter(), BasicAuthenticationFilter.class)
+   //...
+   ```
+
+## 08-005
+addFilterAfter()
+
+示例：要在基本驗證過濾器完成之後，將**成功驗證的紀錄**以及**授權了什麼功能給登入用戶**寫入log
+
+1. 加入`AuthoritiesLoggingAfterFilter`，實作Filter介面的`doFilter()`方法
+2. 測試時，可以在console看到如下畫面
+   ![Internal_Flow](src/main/resources/static/images/authorities_logging_after_filter.png
+3. 非常適用於登入成功後，緊接著要執行的業務邏輯
+   - 例如：寄email給用戶告知登入成功，或者要寫入audit log的情境
+
+## 08-006
+addFilterAt()：
+
+是將一個filter加到特定filter類別的位置上，但無法保證特定filter類別以及要加進去的類別，哪一個先執行，新加進去的filter並不會取代掉既有filter
+```
+   ---(request)->     📁    --->     📁     --->  📁BasicAuthenticationFilter
+👩🏻‍💼                CorsFilter     CsrfFilter       🍀LoggingFilter
+   <-(response)--  order#1  <---  order#2  <---   (order#3)(order#3)?
+```
+> 由於我們對filter順序無法控制（它就任性！隨機），應該盡量避免讓兩個filters共享相同的順序
+- Console測試結果
+  ![AddFilterAt](src/main/resources/static/images/add_filter_at_very_random.png)
+
+## 08-007
+`GenericFilterBean` 以及 `OncePerRequestFilter` 在做什麼？
+
+### [GenericFilterBean]
+- 是一個抽象類別，它也實作了Filter介面
+- 提供了config param, init param, servlet context parameter等定義在deployment descriptor的參數，不用再另外寫邏輯存取之
+
+### [OncePerRequestFilter]
+- 是一個抽象類別，繼承了上述的抽象類`GenericFilterBean`
+- 如果你自定義了一個filter並把他加進了filterchain，Spring Security是不保證一次請求中，這個自定義filter只會執行一次
+- 那麼讓自己定義的filter繼承此抽象類別，就能確保一次請求中，這個自訂filter只會走一次
+- 這個抽象類別管控自訂filter只執行一次的邏輯都寫在它的`doFilter()`方法裡面（那自己的邏輯要寫在哪？）
+- 繼承 OncePerRequestFilter 的自訂filter，它的商業邏輯則要覆寫`doFilterInternal()`方法
+- 其它方法
+  - `shouldNotFilter()`: 針對某特定部分的rest-api或web-api，選擇跳過不執行自訂filter
+- 最常提到的`BasicAuthenticationFilter`其實就繼承了此抽象類

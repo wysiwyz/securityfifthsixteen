@@ -1,6 +1,9 @@
 package com.februus.newibankbackend.config;
 
+import com.februus.newibankbackend.filter.AuthoritiesLoggingAfterFilter;
+import com.februus.newibankbackend.filter.AuthoritiesLoggingAtFilter;
 import com.februus.newibankbackend.filter.CsrfCookieFilter;
+import com.februus.newibankbackend.filter.RequestValidationBeforeFilter;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
@@ -43,12 +46,14 @@ public class ProjectSecurityConfig {
                 .and().csrf(csrf -> csrf.csrfTokenRequestHandler(requestHandler).ignoringRequestMatchers("/contact", "/register")
                     .csrfTokenRepository(CookieCsrfTokenRepository.withHttpOnlyFalse()))
                     .addFilterAfter(new CsrfCookieFilter(), BasicAuthenticationFilter.class)
+                    .addFilterBefore(new RequestValidationBeforeFilter(), BasicAuthenticationFilter.class)
+                    .addFilterAfter(new AuthoritiesLoggingAfterFilter(), BasicAuthenticationFilter.class)
+                    .addFilterAt(new AuthoritiesLoggingAtFilter(), BasicAuthenticationFilter.class)
                 .authorizeHttpRequests()
                     .requestMatchers("/myAccount").hasRole("USER")
                     .requestMatchers("/myBalance").hasAnyRole("USER", "ADMIN")
                     .requestMatchers("/myLoans").hasRole("USER")
                     .requestMatchers("/myCards").hasRole("USER")
-//                    .requestMatchers("/myCards").hasRole("MANAGER")
                     .requestMatchers("/user").authenticated()
                     .requestMatchers("/notices", "/contact", "/register").permitAll() //everyone can access these api paths
                 .and().formLogin()
