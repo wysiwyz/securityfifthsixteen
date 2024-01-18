@@ -1040,3 +1040,146 @@ addFilterAt()：
 - 其它方法
   - `shouldNotFilter()`: 針對某特定部分的rest-api或web-api，選擇跳過不執行自訂filter
 - 最常提到的`BasicAuthenticationFilter`其實就繼承了此抽象類
+
+## 09-001
+JSESSIONID示例與相關問題
+
+- JSESSIONID: 登入成功後會拿到的cookie，這樣之後的請求就不用一直發credentials
+- XSRF-TOKEN: 登入後會存在header的token，之後的請求會在header帶上此token，避免CSRF攻擊
+  ![Internal_Flow](src/main/resources/static/images/jsessionId_xsrfToken.png)
+- 如果要建企業級的app，JSESSIONID會有兩個問題/缺點
+  1. 這個token不包含任何使用者資料，它是亂數產生
+  2. 這個token以cookie的形式存在瀏覽器中，有效期是user session，如果瀏覽器都不關可能會被濫用
+
+## 09-002
+Token在AuthN(驗證)與AuthZ(授權)所扮演的角色
+
+- Token可以是UUID(全域唯一識別碼)的純文字，或是JSON Web Token(通常在用戶登入時，得到首次成功驗證之後產生)
+- 在每次發送請求給受限制的資源時，client會在query string或者Authorization header發送access token ➡️server驗證token，若有效則回傳資料給client
+
+#### Token優點
+- 不用每次請求都分享credentials，頻繁在網路上發送credentials是種資安風險
+- 若有任何可疑活動，可以讓token失效，不用讓user credentials失效
+- 可以建立生命週期很短的token (one day, one hour)
+- token可以用來儲存user相關資訊，例如roles/authorities
+- 可重複使用：可以有很多不同servers在多平台、多domains上運行，並重複使用同一個的token來驗證user
+- 無狀態，易擴展。token包含所有用來識別user的資訊，就不需要用session state。
+  如果專案有用負載平衡器，就可以將user交給任何server，不用固定與登入用的同一個server互動。
+- 示例：先前的CSRF-TOKEN以及JSESSIONID token
+  - CSRF-TOKEN作為CSRF攻擊的防護
+  - JSESSIONID用來幫助存取後端受保護的api時，不用每次都給credentials
+
+## 09-003
+JWT TOKEN Pt.1
+- JWT-JSON web token：是JSON格式的token實作，用作web請求
+- 由於它的特性與優點，JWT是當前眾多系統最愛用且常見的token類型
+- JWT token可以用在驗證授權、資料交換，也就是說你可以在token裡面分享用戶的特定信息，以減少server端在session中維護這類資料的負擔
+
+- JWT token分三段，每段用句點(`.`period/dot)相隔
+  - `Header`.`Payload`.`Signature(Optional)`
+- Header:
+  - 存放關於此token的metadata/info
+  - 如果要簽署此token，header就會包含產生signature的眼算法名稱
+  - 例如將以下的json物件以Base64編碼成 `eyJhbGciOiAiSFMyNTYiLCAidHlwIjogIkpXVCJ9`
+    ```json
+    {
+        "alg": "HS256",
+        "typ": "JWT"
+    }
+    ```
+- Payload/Body:
+  - 儲存user相關信息，供後續驗證與授權所用
+  - 雖然沒限制可以存多少，但是應該盡量愈輕量化愈好
+  - 例如將以下的json物件以Base64編碼成 `eyJzdWIiOiAiNzIyNzIyNzc3MiIsIm5hbWUiOiAiQWxpbmEgSGltbWVsIiwiaWF0IjogMjM0OTQwNX0=`
+    ```json
+    {
+        "sub": "7227227772",
+        "name": "Alina Himmel",
+        "iat": 2349405
+    }
+    ```
+
+## 09-004
+JWT TOKEN Pt.2
+
+- Signature是JWT的最後一段，如果與你共享JWT的對象是內部、可信賴、且在不公開於網路的成員，就非必填
+- 如果要與client app共享，且open web的所有user都會使用，那就需要確保沒有人會異動header與body的值（例如Authorities, username等等）
+- 為了確保沒人能竄改網路上的資料，可以在token產生時加入內容簽章。要建立signature，
+  需要取加密後的header、加密後的payload、一個密鑰、header所指定的演算法，並簽署之
+
+
+- 例如要使用HMAC SHA256演算法的話，簽名就會長得像以下這樣
+  - HMACSHA256(`base64UrlEncode(header) + "." + base64UrlEncode(payload)`, `secret`)
+- 這簽名是用來驗證header,payload的信息沒有中途被人竄改，而且因為token是用密鑰簽署，也可以驗證JWT的發送者確實是該成員
+- 驗證流程：
+  1. 先用header, payload, algo, secret算出新的signature hash
+  2. 接著比對新的signature hash值與原本放在JWT token的hash值
+- 可以使用 [jwt.io](https://jwt.io/) 解密驗證
+
+
+## 09-005
+變更專案配置檔來使用JWT
+1. 首先需要增加三個JWT token相關的dependencies
+2. `ProjectSecurityConfig` 需要做兩項異動
+   1. 以下這段告訴Spring Security要創建JSESSIONID，並將他送到UI應用程式端，這樣UI在首次登入之後發送請求時，才可利用此JSESSIONID
+      ```java
+      http.securityContext().requireExplicitSave(false)
+          .and().sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.ALWAYS))
+      ```
+      - 但現在不要再讓SpringSecurity建立JSESSIONID了，要改用自建的JWT token，所以刪掉以上兩行，並改寫為
+        ```java
+        .sessionManagement().sessionCreationPolicy(SessionCreationPolicy.STATELESS).and()
+        ```
+   2. CORS相關的配置變更：
+      - response header name: `Authorization`
+      - 需要請client端的browser知道並允收此信息
+        ```java
+        config.setExposedHeaders(List.of("Authorization"));
+        ```
+
+## 09-006
+接下來要定義在登入時產生JWT的邏輯
+1. 建立一個自訂JWTTokenGeneratorFilter，繼承OncePerRequestFilter，並實作`doFilterInternal()`方法
+2. `shouldNotFilter()`限制只有登入操作才會串到這個過濾器
+2. 在`ProjectSecurityConfig`加入`.addFilterAfter()`，方法傳入剛建好的filter以及要參照filter位置
+
+## 09-007
+配置Filters來驗證JWT
+1. 建立一個自訂JWTTokenValidatorFilter，繼承OncePerRequestFilter，並實作`doFilterInternal()`方法
+2. `shouldNotFilter()`限制所有登入以外的操作都會串到這個過濾器
+2. 在`ProjectSecurityConfig`加入`.addFilterBefore()`，方法傳入剛建好的filter以及要參照filter位置
+
+## 09-008
+在client side異動以執行JWT驗證
+
+參考[前端的程式異動](https://github.com/wysiwyz/security516frontend/commit/9d468e799ee5a72e49b9866d38012e1645891fbe)
+
+## 09-009
+驗證JWT token情境
+
+![Authentication_expose_header](src/main/resources/static/images/jwt_token_expose_header.png)
+![Cookie_No_JsessionId](src/main/resources/static/images/jwt_token_nomore_sessionId.png)
+![Decoded with jwt.io](src/main/resources/static/images/jwt_token_decoded.png)
+> iat: issued at </br>
+> exp: expired at
+- 登入後，試著點擊登入後才能使用的功能，並在JWTTokenValidatorFilter下中斷點
+- 變更Threads & Variables 裡面 jwt 的值(隨意刪除一個字)
+  ![Internal_Flow](src/main/resources/static/images/tamper_JWT_during_validatorFilter.png)
+- 驗證會失敗，進入BadCredentialsException
+
+> pending question: 這裏不知道為什麼browser看到的是401,而不是500, 可能是ExceptionHandler
+
+
+## 09-010
+驗證JWT token逾期情境
+- 降低 setExpiration 當下時間增加的秒數
+- token過期就不能存取受保護的api了 🤯🤯
+
+```java
+String jwt = Jwts.builder().setIssuer("NewIBank").setSubject("JWT Token")
+        .claim("username", authentication.getName())
+        .claim("authorities", populateAuthorities(authentication.getAuthorities()))
+        .setIssuedAt(new Date())
+        .setExpiration(new Date((new Date()).getTime() + 30000))
+        .signWith(key).compact();
+```
