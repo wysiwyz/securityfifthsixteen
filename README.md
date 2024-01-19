@@ -1183,3 +1183,125 @@ String jwt = Jwts.builder().setIssuer("NewIBank").setSubject("JWT Token")
         .setExpiration(new Date((new Date()).getTime() + 30000))
         .signWith(key).compact();
 ```
+
+## 10-001
+介紹一下Method level security
+
+- 先前提到的都是應用在`API paths/URLs`的授權規則，但現在要介紹的方法等級security可以讓開發在服務層或者資料存取層加上授權規則，
+  在configuration class上使用`@EnableMethodSecurity`標註來達成
+- 方法等級的security還可以幫助你在non-web應用程式（沒有任何endpoint端點）的專案中設置授權原則
+
+
+- 方法等級的security提供以下方法，來將授權規則應用到業務邏輯上
+  - **Invocation authorization**: 驗證user是否能根據其自身的roles/authorities調用一個方法
+  - **Filtering authorization**: 驗證
+    1. 經由所提供的參數，方法能夠接收到什麼內容
+    2. 方法在執行完成業務邏輯後，調用者可以從方法回傳內容拿到什麼
+
+- Spring Security 會利用AOP模組的aspect，在每個方法被調用之前加入攔截器，以套用配置好的授權規則
+- 方法等級的security提供以下三種不同配置方式： 
+  - prePostEnabled: `@PreAuthorize` and `@PostAuthorize`
+  - securedEnabled: `@Secured`
+  - jsr250Enabled: `@RoleAllowed`
+
+🧩相較之下
+- `@Secured`以及`@RoleAllowed`的權力比另外兩個來的低`@PreAuthorize`,`@PostAuthorize`
+- 所以後續重點在`@PreAuthorize`,`@PostAuthorize`
+```java
+import org.springframework.context.annotation.Configuration;
+import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
+
+@Configuration
+@EnableMethodSecurity(prePostEnabled = true, securedEnabled = true, jsr250Enabled = true)
+public class ProjectSecurityConfig {
+    //...
+}
+```
+
+## 10-002
+- 可以決定一枚user在該方法**執行前**或**執行後**，是否有被授權來調用該方法
+- 如果要在調用方法之前先過濾參數，可以使用`Prefiltering`
+  ```java
+  import org.springframework.security.access.prepost.PreAuthorize;   
+  import org.springframework.stereotype.Service;   
+  
+  @Service
+  public class LoansService {
+
+      @PreAuthorize("hasAuthority('VIEWLOANS')")
+      @PreAuthorize("hasRole('ADMIN')")
+      @PreAuthorize("hasAnyRole('ADMIN', 'USER')")
+      @PreAuthorize("# username == authentication.principal.username") //SpEL
+      public Loan getLoanDetails(String username) {
+          return loansRepository.loadLoanDetailsByUserName(username);
+      }
+  }
+  ```
+
+- 以下是套用 postauthorization 規則的方式
+  ```java
+  import org.springframework.security.access.prepost.PostAuthorize;   
+  import org.springframework.stereotype.Service;   
+  
+  @Service
+  public class LoanService {
+  
+      @PostAuthorize("returnObject.username == authentication.principal.username")
+      @PostAuthorize("hasPermission(returnObject, 'ADMIN')")
+      public Loan getLoanDetails(String username) {
+          return loanRepository.loadLoanByUserName(username);
+      }
+  }
+  ```
+  
+- 當實作複雜的授權邏輯，可以用另外一個實作`PermissionEvaluator`的類別，要覆寫`hasPermission()`，區分邏輯
+- 決大部分的情況都是用pre-authorization
+  
+## 10-003
+使用preAuthorize實作method level security
+1. 要實作Loans相關的方法，首先要修改 defaultSecurityFilterChain 方法
+   - `requestMatchers("/myLoans").hasRole("USER")`➡️`.authenticated()`
+2. 在程式入口點的類別加上`@EnableMethodSecurity`
+3. 在LoanRepository裡面一個方法加上`@PreAuthorize("hasRole('ROOT')")`
+   - 目前資料庫沒有這個角色，所以應該不能存取
+4. 再改回`@PreAuthorize("hasRole('USER')")`就能正常存取了
+
+## 10-004
+將`@PostAuthorize("hasRole('ROOT')")`加在LoanController的方法上，就會在方法跑完後，拒絕把該回傳的傳回去
+
+## 10-005
+- 如果有個情境不是要驗證該角色能否調用特定方法，而是要確保該角色調用方法時，
+  該特定方法接收到的參數/傳出去的內容，是否符合授權規則，就可以考慮用filtering
+- 在呼叫方法前過濾傳入參數，可以使用`@PreFilter`標註，但要注意filterObject應該要是Collection介面的一種
+  ```java
+  import org.springframework.security.access.prepost.PreFilter;   
+  import org.springframework.web.bind.annotation.RestController;   
+  
+  @RestController
+  public class ContactController {
+  
+      @PreFilter("filterObject.contactName != 'Test'")
+      public List<Contact> saveContactInquiryDetails(@RequestBody List<Contact> contacts) {
+          // business logic
+          return contacts;
+      }
+  }
+  ```
+- 在執行方法完成之後過濾參數，可以使用`@PostFilter`標註，
+  注意filterObject(方法回傳物件) 應該要是Collection介面的一種，
+  例如應該回傳`List<Contact>`，而不是`Contact
+  ```java
+  @PostFilter("filterObject.contactName != 'Test'")
+  ```
+- 可以在Spring Data Repository介面的方法加上這個標註，用以過濾資料庫傳來其中不想要的資料
+
+## 10-006
+- 假設現在你不想要收到任何contact detail姓名中含有test的成員，避免測試資料被存進DB
+- 這樣就可以加入`@PreFilter`
+- filterObject.{contactName} 其中的`contactName`必須為傳入物件的其中一個欄位
+- 另外傳入參數也要改成 List<Contact>
+
+## 10-007
+- `@PostFilter` 則是會在存入table(方法內容)執行完畢後，過濾掉括號內規定的值
+- 在此例的結果則會存入table，但沒有 contactId 能夠回傳給UI
+

@@ -53,7 +53,7 @@ public class ProjectSecurityConfig {
                 .authorizeHttpRequests()
                     .requestMatchers("/myAccount").hasRole("USER")
                     .requestMatchers("/myBalance").hasAnyRole("USER", "ADMIN")
-                    .requestMatchers("/myLoans").hasRole("USER")
+                    .requestMatchers("/myLoans").authenticated()
                     .requestMatchers("/myCards").hasRole("USER")
                     .requestMatchers("/user").authenticated()
                     .requestMatchers("/notices", "/contact", "/register").permitAll() //everyone can access these api paths

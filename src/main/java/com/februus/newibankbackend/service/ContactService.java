@@ -8,16 +8,33 @@ import org.springframework.web.bind.annotation.RequestBody;
 
 import java.security.SecureRandom;
 import java.sql.Date;
+import java.util.ArrayList;
+import java.util.List;
+
 
 @Service
 public class ContactService {
     @Autowired
     private ContactRepository contactRepository;
 
-    public Contact saveContactQueryDetails(Contact contact) {
+    public List<Contact> saveContactQueryDetails(List<Contact> contacts) {
+
+        Contact contact = new Contact();
+        if (!contacts.isEmpty()) {
+            contact = contacts.get(0);
+        } else {
+            contact.setContactName("Ms. Testman");
+            contact.setContactEmail("testman@coco.co");
+            contact.setMessage("I am just testing");
+            contact.setSubject("For test only");
+            // 10-006 below will throw NPE if the request is filtered by `PreFilter` annotation
+        }
         contact.setContactId(getServiceReqNumber());
         contact.setCreateDt(new Date(System.currentTimeMillis()));
-        return contactRepository.save(contact);
+        contact = contactRepository.save(contact);
+        List<Contact> returnContacts = new ArrayList<>();
+        returnContacts.add(contact);
+        return returnContacts;
     }
 
     private String getServiceReqNumber() {
