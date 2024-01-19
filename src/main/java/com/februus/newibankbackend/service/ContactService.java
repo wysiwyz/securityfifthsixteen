@@ -1,16 +1,17 @@
 package com.februus.newibankbackend.service;
 
+import com.februus.newibankbackend.exception.NewIBankException;
 import com.februus.newibankbackend.model.Contact;
 import com.februus.newibankbackend.repository.ContactRepository;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
-import org.springframework.web.bind.annotation.RequestBody;
 
 import java.security.SecureRandom;
 import java.sql.Date;
 import java.util.ArrayList;
 import java.util.List;
 
+import static com.februus.newibankbackend.constants.ReturnCodeEnum.NIB_C001;
 
 @Service
 public class ContactService {
@@ -27,6 +28,7 @@ public class ContactService {
             contact.setContactEmail("testman@coco.co");
             contact.setMessage("I am just testing");
             contact.setSubject("For test only");
+            throw NewIBankException.createByCode(NIB_C001);
             // 10-006 below will throw NPE if the request is filtered by `PreFilter` annotation
         }
         contact.setContactId(getServiceReqNumber());
