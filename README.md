@@ -214,7 +214,7 @@ public class ProjectSecurityConfig {
          return NoOpPasswordEncoder.getInstance();
      }
 }
-``` 
+```
 ## 03-004
 用戶管理相關的類別與介面
 - `UserDetailsService` \[介面] 核心介面，加載user特定的資料
@@ -229,7 +229,7 @@ public class ProjectSecurityConfig {
   - `InMemoryUserDetailsManager`
   - `JdbcUserDetailsManager`
   - `LdapUserDetailsManager`
-上述這些介面與類別都使用了`UserDetails`介面，提供基本user資料
+  上述這些介面與類別都使用了`UserDetails`介面，提供基本user資料
   - `User`實作了`UserDetails`
 
 ## 03-005
@@ -372,10 +372,10 @@ MySQL cloud server
     ```java
     @Service
     public class NewIBankUserDetails implements UserDetailsService {
-
+    
       @Autowired
       CustomerRepository customerRepository;
-
+    
       @Override
       public UserDetails loadUserByUsername(String username) throws UsernameNotFoundException {
         String userName = null;
@@ -741,7 +741,7 @@ Ignore CSRF protection for public apis
 2. 在 chain_method 裡面
    ```
    .csrf((csrf) -> csrf.csrfTokenRequestHandler(requestHandler))
-
+   
    ```
 3. `CookieCsrfTokenRepository.withHttpOnlyFalse()`:
    告訴SpringFramework要『建立一個csrf cookie，配置為httpOnlyFalse，這樣部署在angular的JavaScript就可以讀取cookie
@@ -1227,7 +1227,7 @@ public class ProjectSecurityConfig {
   
   @Service
   public class LoansService {
-
+  
       @PreAuthorize("hasAuthority('VIEWLOANS')")
       @PreAuthorize("hasRole('ADMIN')")
       @PreAuthorize("hasAnyRole('ADMIN', 'USER')")
@@ -1305,3 +1305,255 @@ public class ProjectSecurityConfig {
 - `@PostFilter` 則是會在存入table(方法內容)執行完畢後，過濾掉括號內規定的值
 - 在此例的結果則會存入table，但沒有 contactId 能夠回傳給UI
 
+## 11-001
+- 如果一個組織有很多個web-apps、mobile-app或者micro-services，那最好將身份驗證與授權的邏輯分離到另外一個組件(component)
+- 最常見的例子就舉銀行，它可以有網路銀行、行動銀行、也會有一些微服務（內部web-app，用於貸款處理、貸款審核批准）
+- 因為身分驗證授權工作，在上述三種程序中都非常繁瑣，應該要把這些anti-security邏輯移到共用組件中
+- OAUTH2就是行業中最先進的解決方案
+
+#### 簡介OAUTH2
+- 情境：一個line用戶想要使用第三方網站'StickerAnalyzer'，以分析在line.app中使用貼圖的相關數據
+  - **不用OAUTH2**: 
+    - 這名用戶需要把line帳戶的身份驗證資訊交給StickerAnalyzer，
+      而StickerAnalyzer會調用line.app的API，以取得貼圖購買/使用明細，再產出報告給end user
+      
+      > 因為你提供的是master credentials，第三方網站很有可能會濫用
+    
+  - **使用OAUTH2**:
+    - 這名用戶不需要將自身的line帳號密碼 (credentials) 提供給 StickerAnalyzer，
+      而是會讓line.app提供一個暫時的存取token，交給StickerAnalzer，唯此token只具備有限的權限（比如說只能讀取資料），
+      這樣一來StickerAnalyzer就只能讀資料，不能做其他修改刪除新增等等操作
+  
+- [例2] Google如何讓user只用一個帳號，就能使用一堆服務 (Picture, Youtube, Drive, Map, Gmail) 呢？
+
+  - 使用OAuth2，OAuth2 recommend to use a separate Auth Server for AuthN and AuthZ.
+  - 這樣Gmail與Youtube都用一樣的Auth Server，要修改的時候只要改這一個組件，也不用登入Gmail之後，打開Youtube還要再登入一次
+
+
+- [例3] 一家銀行有處理貸款的網站、處理信用卡的網站、處裡帳戶的網站，不使用OAuth2的話，客戶會需要在三個系統分別做註冊並維護用戶信息（同樣的事做三次）
+  - 即使是驗證與授權的邏輯，也會在三個網站各自完成
+  - 這樣未來若有任何變更或資安優化的需求，三個地方都要改過
+
+## 11-002
+[OAuth] 
+- 是Open Authorization的縮寫，為開源免費的協議
+- 建構於IETF標準，licenses from Open Web Foundation
+
+[OAuth 2.0]
+- 是當你授予一個app_A可以去另外一個app_B存取你的資料，所使用的安全標準
+- `delegated authorization`指的是同意提供授權的步驟
+- 即，你在不交出 *app_B的帳戶驗證資訊* 給 app_A 的情況下，同意 app_A 在 app_B 代替你存取資料或使用 app_B 的某些功能
+- 可以將OAuth token看成一張到任何辦公室/旅館的門禁卡，它提拱了有限的存取權（低於master key的權限）
+
+> access token: 決定what third party可以執行 what operations
+
+- OAuth框架針對不同使用情況，訂定了許多不同 grant type（權限授予類型)
+  - Authorization Code
+  - PKCE
+  - Client Credentials
+  - Device Code
+  - Refresh Token
+  - Implicit Flow (legacy since oauth 2.1)
+  - Password Grant (legacy since oauth 2.1)
+- 另外也有提供框架用來創建新的 grant type
+- 參考網站[OAuth 2.net](https://oauth.net/2/)
+
+## 11-003
+OAuth2相關的術語行話
+1. **Resource owner**:
+   - 即為最終使用者，在StickerAnalyzer故事中，resource owner就是想要透過第三方app取得貼圖使用分吸的line用戶
+2. **Client**:
+   - StickerAnalyzer網站就是client，在取得resource owner/end user的允許權之後，與line.app互動
+3. **Authorization Server**:
+   - 知道resource owner相關信息的server，也就是說resource owner應該有在這個server註冊帳號
+   - 這裏，擁有驗證邏輯的line.app即為Authorization Server
+4. **Resource Server**:
+   - 這是client想要消費使用的APIs,services等服務所存在的Server
+   - 這裏的line.app擁有像是 getStickers()與其它商業邏輯的的API，就是所謂Resource Server
+   - 在比較小的組織中，單一一個 Server 會兼具 Authorization server 與 Resource server
+5. **Scopes**:
+   - Client想取得的許可權顆粒度，像是資料存取權、或者執行特定行為的權限
+   - 在StickerAnalyzer故事中，Auth Server 可以發行 scopes 只包含 READ STICKERS 的 access token 給 Client
+
+## 11-004
+OAuth2 簡單的流程圖
+1. 貼圖分析器的團隊 (StAn_team) 向 Line 提出協作意願，需要 line 允許他們的 user 使用 line 帳號登入貼圖分析器
+   - StAn_team 需要先在 Line團隊(Line_team) 登錄成為client
+   - Line_team 收集 StAn_team 資料、website、logo等等，並發行一個`CLIENT ID`與`CLIENT SECRET`
+2. Line 用戶小青有天拜訪 StAn_team 的網站，決定使用看看，但有個問題，小青需要提供 line 帳密給這個第三方嗎？
+   - StAn_team 的網站有一個按鈕`使用line帳戶登入`，小青點了這按鈕，頁面被導向至 line 登入頁
+3. 小青在line登入頁輸入line帳號密碼
+   - 驗證成功後，line出現一個同意確認頁，問她是否同意將line相關數據分享給client_StAn_team（權限Scope: READ ONLY)
+4. 接著 Line_team 的 Auth Server 發佈一個 access & refresh token 給 StAn_team 的網站
+   - `ACCESS & REFRESH TOKEN`是隨機複雜字串，很難猜的到，client(StAn_team)就把這些 token 存起來，以便之後與 Line_Server 互動時使用
+5. StAn_team網站向Line_team的 Resource Server 發送一個請求，拿著從 Auth Server 取得的 access token 調用`/getStickers`API
+   - Line_team 的 Resource Server 請 Auth Server 來驗證這個 access token，有效的話就回傳請求的資源內容
+6. 最後，StAn_team 拿到它要的資料，並產出報告給小青看看自己都買了哪些得寵的/被打入冷宮的貼圖
+   - 小青很開心，因為她不用冒險把line的帳密交給第三方團隊，就可以看的到結果（🦭🐕🐈‍⬛...)
+
+
+## 11-005
+OAuth2的流程：以Slack/StackOverflow為例
+
+- 可以用Slack帳號，也可以用 facebook 或者 Google 或者 GitHub 帳號登入
+- 因為這些大牌帳號都已經幫你做好電子郵件驗證或者手機號碼的驗證了 💪🏻🙏🏻👏🏻
+
+
+## 11-006
+🧩Authorization Grant Type Flow
+
+![Oauth2_simpleFlow](src/main/resources/static/images/oauth2_simple_flow.png)
+1. 哈囉Client，我想要存取自己的資源
+2. hi User，請通知Auth Server你同意執行此操做
+3. 哈囉Auth Server，請允許client存取我的資源，謹附上我的登入驗證資料
+4. Hi Client，user跟我說他允許你存取他的資源了，這是AUTHORIZATION CODE
+5. 哈囉Auth Server，這是我的client credentials以及AUTHZ CODE，請給我access token
+6. Hi Client，這是Auth Server給你的access token
+7. 哈囉Resource Server，我想要存取user資源，這是Authz Server給我的access token
+8. 好的Client，你的access token已驗證成功，這是要給你的user資料
+
+#### 步驟二＆三，client要向Auth Server endpoint發出請求時，需要提供以下資料
+- **client_id**: 由Auth Server發佈，用來識別client app的號碼。當client首次向Auth Server註冊時會拿到此ID
+- **redirect_uri**: 驗證成功後，Auth Server需要轉導的URI值。如果client在註冊時就有提供預設網址，那這資料就非必要提供
+- **scope**: 類似authorities，指定client要求的存取層級，例如READ
+- **state**: 用來保護免於CSRF攻擊的csrf-token
+- **response_type**: 
+  - With the value `code` which indicates that we want to follow authorization code grant flow
+
+#### 步驟五，client從Auth Server收到AUTHORIZATION CODE之後，需要再提供以下資料，來向Auth Server發請求要token
+- **code**: 上個步驟拿到的 AUTHORIZATION CODE
+- **client_id** & **client_secret**: client登記在Auther Server登入驗證資料 (這裏不是user的登入驗證資料)
+- **grant_type**: With the value `authorization_code`，確認要使用哪一種授予權限型態(grant type)
+- **rediirect_uri**: Auth Server交給client access token之後，會轉導的頁漫
+
+#### 你可能會想知道，為什麼Authorization Code grant type client要為了拿authorization code以及access token，向Auth Server先後發出兩次請求
+- 首先，Auth Server要先確保user直接使用自己的credentials與auth server互動。如果正確，則auth sever會將authorization code交給client
+- 一但client收到authorization code，client則要使用authorization code以及client自己的credentials證明身分，以取得access token
+
+#### 那為什麼不要整合這兩個行為成同一個步驟？
+- The answer is that we used to have that grant type as well which is called as `implicit grant type`(隱式授權模式)
+- 但這個模式不建議使用，因為比較不安全
+
+## 11-007
+[The OAuth 2.0 Playground](https://oauth.com/playground/) 可以玩玩 Authorization Code option
+
+## 11-008
+🧩Oauth2 flow 的隱式授權流程(implicit grant flow)
+1. [User➡️Client] 我要存取我的資源
+2. [Client➡️User] 請告知Auth Server你同意執行此行為
+3. [User➡️Auth Server] 請允許client讓它能存取我的資源，這是我的身分證明資料
+4. [Auth Server➡️Client] User說他允許你(client)存取他的資源了，請收access token
+5. [Client➡️ResourceServer] 我想要存取user resources，這是Auth Server給我的access token
+6. [ResourceServer➡️Client] 你的access token驗證成功，請收下你請求的資源
+
+#### 步驟三，當client要向Auth Server endpoint發送請求時，他需要提供以下資料：
+- **client_id**: 由Auth Server發佈，用來識別client app的號碼。當client首次向Auth Server註冊時會拿到此ID
+- **redirect_uri**: 驗證成功後，Auth Server需要轉導的URI值。如果client在註冊時就有提供預設網址，那這資料就非必要提供
+- **scope**: 類似authorities，指定client要求的存取層級，例如READ
+- **state**: 用來保護免於CSRF攻擊的csrf-token
+- **response_type**:
+    - With the value `token` which indicates that we want to follow implicit grant type
+
+- If the user approves the request, the authorization server will redirect the browser back to the redirect_uri specified by the app,
+  adding a token and state to the fragment part of the URL
+- Implicit Grant flow is deprecated and is not recommended to use in production applications. 
+  Always use the Authorization code grant flow instead of implicit grant flow
+
+[The OAuth 2.0 Playground](https://oauth.com/playground/)
+也有 implicit option 可以選擇
+
+## 11-009
+🧩Password grant type / Resource owner credentials grant type 
+1. [User➡️Client] 我想要存取我的資源，這是我的身分驗證資料
+2. [Client➡️AuthServer] User說他想要存取他的資源，這是他的身分驗證資料
+3. [AuthServer➡️Client] 身分驗證資料驗證成功，交給你存取user資源的 TOKEN
+4. [Client➡️Resource Server] 我要請求user資源，請確認AuthServer發給我的access token
+5. [Resource Server➡️Client] 你的token驗證成功，這是你要求的資料
+
+> 不適用於生產環境
+
+#### 在Step#2，當client要向Auth Server發請求時，需要提供以下資料
+- **client_id** & **client_secret**: 驗證client本身所用的身分驗證資料
+- **scope**: 類似authorities，指定client要求的存取層級，例如READ
+- **username** & **password**: user在login flow提供的身分驗證資料
+- **grant_type**: With the value `password` which indicates that we want to follow password grant type
+
+
+- 唯有client、authorization server以及resource server都由相同組織維護，才會使用這一種authentication flow
+- 通常企業要將business flow與auth flow區分開來的話，會使用這一種flow
+- 一但Auth flow被拆分開來了，這個組織的其他服務就能夠利用它
+
+## 11-010
+🧩Client Credentials Grant Type
+
+- 這個流程少了User角色，如下流程
+  1. [Client➡️AuthServer] 我要存取受保護的資源，這是我的client credentials
+  2. [AuthServer➡️Client] credentials正確，這是給你存取資源的ACCESS TOKEN
+  3. [Client➡️ResourceServer] 我想要存取受保護的資源，這是AuthServer發行的access token，請檢查
+  4. [ResourceServer➡️Client] 你的token驗證成功，這是你要求的資料
+
+#### 步驟一中，client要發送請求至Auth Server endpoint時，需要提供以下信息
+- client_id & client_secret: client要驗證所需的credentials
+- scope: 存取層級，類似authorities
+- grant_type: 
+  - With the value `client_credentials` which indicates that we want to follow client credentials grant type
+
+- Client Credentials Grant Type是OAuth2.0裡面，最簡單的grant type flow
+- 只有在沒有user與UI參與的情境下，才會用此驗證劉。示例情境：兩個不同apps想要使用backend APIs共享彼此的資料
+
+
+## 11-011
+🧩Refresh Token Grant Type
+
+1. [Client➡️ResourceServer] 我想要存取user受保護的資源，這是initial user login收到的access token
+2. [ResourceServer➡️Client] token過期了，我要拋出403錯誤
+3. [Client➡️AuthServer] 我需要這個user的新的access token，這是該名user的refresh token
+4. [AuthServer➡️Client] refresh token有效，請收下新的access token以及新的refresh token
+5. [Client➡️ResourceServer] 我想要存取受保護的資源，這是Auth Server發行的access token
+6. [ResourceServer➡️Client] 你的token驗證成功，這是你請求的資源
+
+#### 步驟三，當client要向Auth Server endpoint發送請求時，需要提供以下訊息
+- client_id & client_secret: client 要驗證自己所使用的身分驗證資料
+- refresh_token: 一開始收到的 refresh token 值
+- scope: 類似authorities，指定了client請求的存取權限等級，像是READ
+- grant_type:
+  - With the value `refresh_token` which indicates that we want to follow refresh token grant type
+
+
+- 這個流程適用於user的access token逾期的情境中。與其要求user再登入，可以使用Authz Server提供的refresh token，再重新驗證user
+- 雖然可以使access token永遠不要過期，但不建議這麼做，因為如果一直使用相同的token很容易被偷
+- Even in the resource owner credential grant types, we should not store the user credentials for reauthentication purpose instead we should reply on the refresh tokens
+
+## 11-012
+### 1. Resource server token validation: 
+#### 1. in the OAuth2 flow using direct api call
+![direct_api_call](src/main/resources/static/images/oauth_direct_api_call.png)
+
+#### 2. in the OAuth2 flow using common DB
+![Using_common_db](src/main/resources/static/images/oauth_common_db.png)
+
+#### 3. in the OAuth2 flow using certificates
+![Using_certificates](src/main/resources/static/images/oauth_certificates.png)
+
+## 11-013
+OpenID Connect (OIDC)
+
+OpenID connect是什麼？
+- OpenID Connect是基於OAuth 2.0框架上的協議。OAuth2.0藉由含有scopes的access token提供授權，而OpenID Connect則透過new ID token授權，
+  這個ID token含有a new set of information and claims specifically for identity
+- 藉由ID Token，OpenID Connect提供了apps之間分享身分資料的標準
+- OpenID Connect flow跟OAuth大致相同，唯一差別在於initial request, a specific scope of **openid** is used,
+  and in the final exchange the client received both an Access Token and ID Token
+
+#### 為何OpenID Connect很重要
+- OAuth 2.0是現今授權的核心，但是OAuth 2.0缺乏驗證的元件。在OAuth2.0上實作OpenID Connect就完整了IAM策略
+  - IAM (identity and access management)
+- 隨著更多apps需要互相溝通，以及網路上有愈來愈多身份，要能夠共享這些身份的需求也愈來愈多。如果使用OpenID connect，apps就能輕易的共享這些身份
+
+
+OpenID Connect基於OAuth 2.0，再加上了以下幾點
+1. OIDC standardize the scopes to openid, profile, email and address
+2. ID Token使用JWT標準
+3. OIDC暴露了標準的`/userinfo`端口
+
+[The OAuth 2.0 Playground](https://oauth.com/playground/)也有 **OpenIDConnect** 的選項可以試試
